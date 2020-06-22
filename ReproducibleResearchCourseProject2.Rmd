@@ -1,0 +1,267 @@
+---
+title: "Severe Weather Events Caused Most Damage on Population Health and Economy from 1950 to 2011"
+author: "Peihuan Meng"
+date: "6/20/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width = 12, fig.height = 6)
+library(ggplot2)
+library(dplyr)
+library(lattice)
+library(scales)
+library(knitr)
+```
+
+
+## Synopsis
+
+This report aims to summarize the impact of severe weather events on population health, in terms of fatalities and injuries, and property damages. The data used in the analysis comes from U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. 
+
+As a result, the report identifies the weather events that cause the most damages for the country as a whole and for each state individually. 
+
+## Environment
+
+The following is the environment the analysis was run in.
+
+```{r}
+sessionInfo()
+```
+
+## Data Processing
+
+We start from downloading the data from the URL provided by the assignment. 
+
+```{r}
+if (!file.exists("StormData.csv.bz2")) {
+  download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", "StormData.csv.bz2", method = "curl")
+}
+```
+
+We then use _read.csv()_ to read only columns needed for the analysis, namely _COUNTYNAME_, _STATE_, _EVTYPE_, _FATALITIES_, _INJURIES_, _PROPDMG_ and _CROPDMG_, in order to have a smaller memory footprint on the system. Caching is turned on for this section for efficiency.
+
+```{r cache=TRUE}
+sd <- read.csv("StormData.csv.bz2", header = TRUE, na.strings = "", colClasses = c(
+  rep("NULL", 6), "character", "factor", rep("NULL", 14), "double", "double", "double", "character", "double", "character", rep("NULL", 9))) 
+```
+
+After reading the data into a data frame, we check the memory foot print, the dimentions of the data set, the first a few rows of the data and a summary of data for a preliminary examination of the data. 
+
+The data set has 902297 observations and takes up 37.9MB memory. 
+
+```{r}
+print(object.size(sd), units = "Mb")
+dim(sd)
+head(sd)
+summary(sd)
+```
+
+There are no NAs in the data set. 
+
+```{r}
+with(sd, sum(is.na(STATE)) + sum(is.na(EVTYPE)) + sum(is.na(FATALITIES)) + sum(is.na(INJURIES)) + sum(is.na(PROPDMG)) + sum(is.na(CROPDMG)))
+```
+
+Normalize property damage and crop damage by taking the units into consideration.
+
+```{r}
+sd <- rbind(
+  sd %>% filter(PROPDMGEXP == "H") %>% mutate(PROPDMG = PROPDMG * 100),
+  sd %>% filter(PROPDMGEXP == "K") %>% mutate(PROPDMG = PROPDMG * 1000),
+  sd %>% filter(PROPDMGEXP == "M") %>% mutate(PROPDMG = PROPDMG * 1000000),
+  sd %>% filter(PROPDMGEXP == "B") %>% mutate(PROPDMG = PROPDMG * 1000000000),
+  sd %>% filter(!(PROPDMGEXP %in% c("H", "K", "M", "B"))))
+
+sd <- rbind(
+  sd %>% filter(CROPDMGEXP == "H") %>% mutate(CROPDMG = CROPDMG * 100),
+  sd %>% filter(CROPDMGEXP == "K") %>% mutate(CROPDMG = CROPDMG * 1000),
+  sd %>% filter(CROPDMGEXP == "M") %>% mutate(CROPDMG = CROPDMG * 1000000),
+  sd %>% filter(CROPDMGEXP == "B") %>% mutate(CROPDMG = CROPDMG * 1000000000),
+  sd %>% filter(!(CROPDMGEXP %in% c("H", "K", "M", "B"))))
+
+```
+
+## Results
+
+The analysis aims to identify the most consequential weather events in terms of human fatalities and injuries and property damages for the country as a whole and for each individual state. 
+
+The analysis addresses 2 audiences:
+
+1. The country as a whole
+2. By each state
+
+The analysis focuses on 3 properties:
+
+1. Population fatalities
+2. Population injuries
+2. Property damage
+
+#### Entire US Analysis
+
+##### 1. Fatalities
+
+We first calculated the total fatalities across the US for the entire time period. We then group the data by _EVTYPE_, calculate the total for each group, then sort the data in the descending order of the totals for each event type. Then, we added 2 more columns, one for the percentage of the fatalities for that group in the fatalities for all event types, and the accumulative percentage within that group. The reason we calculate the accumulative percentage is we want to have a strategy to display the events that cuses the most severe damages in terms of human fatality up to a certain accumulative percentage point, 85%. 
+
+```{r}
+total_fatalities = sum(sd$FATALITIES)
+fatalities_us <- sd %>% 
+  group_by(EVTYPE) %>% 
+  summarise(total = sum(FATALITIES, na.rm = TRUE)) %>% 
+  arrange(desc(total)) %>% 
+  mutate(cumulative_percentage = cumsum(total) / total_fatalities, percentage = percent(total / total_fatalities)) %>%
+  filter(cumulative_percentage < .85)
+  
+g1 <- ggplot(fatalities_us, aes(x = reorder(EVTYPE, -total), y = total)) 
+g1 + geom_bar(stat="identity") + xlab("Event") + ylab("Fatality") + ggtitle("Fatality by Event") +
+    geom_text(stat = 'identity', aes(label = percentage, vjust = -0.2)) +
+    theme(axis.text.x = element_text(angle = 90))
+```
+
+##### 2. Injuries
+
+Similar analysis is done to injuries.
+
+```{r}
+total_inguries = sum(sd$INJURIES)
+injuries_by_type <- sd %>% 
+  group_by(EVTYPE) %>% 
+  summarise(total = sum(INJURIES, na.rm = TRUE)) %>% 
+  arrange(desc(total)) %>% 
+  mutate(cumulative_percentage = cumsum(total) / total_inguries, percentage = percent(total / total_inguries)) %>%
+  filter(cumulative_percentage < .85)
+
+g2 <- ggplot(injuries_by_type, aes(x = reorder(EVTYPE, -total), y = total))  
+g2 + geom_bar(stat="identity") + xlab("Event") + ylab("Injury") + ggtitle("Injury by Event") +
+    geom_text(stat = 'identity',aes(label = percentage, vjust = -0.2)) +
+    theme(axis.text.x = element_text(angle = 90))
+```
+
+##### 3. Property Damage
+
+Similar analysis is done to property damage
+
+```{r}
+total_damage <- sum(sd$PROPDMG, na.rm = TRUE)
+damage_by_type <- sd %>% 
+  group_by(EVTYPE) %>% 
+  summarise(total = sum(PROPDMG, na.rm = TRUE)) %>% 
+  arrange(desc(total)) %>% 
+  mutate(cumulative_percentage = cumsum(total) / total_damage, percentage = percent(total / total_damage)) %>%
+  filter(cumulative_percentage < .85)
+
+g3 <- ggplot(damage_by_type, aes(x = reorder(EVTYPE, -total), y = total))  
+g3 + geom_bar(stat="identity") + xlab("Event") + ylab("Property Damage") + 
+    ggtitle("Property Damage by Event") +
+    geom_text(stat = 'identity', aes(label = percentage, vjust = -0.2)) +
+    theme(axis.text.x = element_text(angle = 90))
+```
+
+#### By State Analysis
+
+We then run above 3 analysis on a per state level. 
+
+##### 1. Fatalities
+
+The data is processed as following:
+
+1. Group the data by _STATE_ and _EVTYPE_, 
+2. Calculate total fatalities for each group.
+3. Filter out those groups with no fatalities.
+4. Group by _STATE_.
+5. Arrange data in acending order of _STATE_ and descending order of _Total.Fatality_.
+6. Add columns for percentage and cumulative percentage for that event in that state. 
+7. Split the data by _STATE_
+
+```{r results="asis"}
+cat("
+<style>
+caption {
+      color: black;
+      font-weight: bold;
+      font-size: 1.2em;
+      text-align: center;
+    }
+</style>
+")
+
+fatalities_state <- sd %>% 
+  group_by(STATE, EVTYPE) %>% 
+  summarise(Total.Fatality = sum(FATALITIES, na.rm = TRUE)) %>% 
+  filter(Total.Fatality > 0) %>%
+  group_by(STATE) %>%
+  arrange(STATE, desc(Total.Fatality)) %>%
+  mutate(Percentage = percent(Total.Fatality / sum(Total.Fatality)), Cumulative.Percentage = percent(cumsum(Total.Fatality) / sum(Total.Fatality)))
+
+splitted_by_state <- split(fatalities_state, fatalities_state$STATE)
+for (splitted in  splitted_by_state) {
+    df <- as.data.frame(splitted)
+    sn <- unique(df$STATE)
+    df <- df %>% select(-STATE, Event.Type = EVTYPE)
+    print(kable(head(df, 10), caption = paste("Top 10 Fatalities for ", sn)))
+}
+```
+
+##### 2. Injuries
+
+Samiliar analysis is done to injuries at a per state level.
+
+```{r results="asis"}
+cat("
+<style>
+caption {
+      color: black;
+      font-weight: bold;
+      font-size: 1.2em;
+      text-align: center;
+    }
+</style>
+")
+injuries_state <- sd %>% 
+  group_by(STATE, EVTYPE) %>% 
+  summarise(Total.Injury = sum(INJURIES, na.rm = TRUE)) %>% 
+  filter(Total.Injury > 0) %>%
+  group_by(STATE) %>%
+  arrange(STATE, desc(Total.Injury)) %>%
+  mutate(Percentage = percent(Total.Injury / sum(Total.Injury)), Cumulative.Percentage = percent(cumsum(Total.Injury) / sum(Total.Injury)))
+
+splitted_by_state <- split(injuries_state, injuries_state$STATE)
+for (splitted in  splitted_by_state) {
+    df <- as.data.frame(splitted)
+    sn <- unique(df$STATE)
+    df <- df %>% select(-STATE, Event.Type = EVTYPE)
+    print(kable(head(df, 10), caption = paste("Top 10 Injuries for ", sn)))
+}
+```
+
+##### 3. Property Damages
+
+Samiliar analysis is done to injuries at a per state level.
+
+```{r results="asis"}
+cat("
+<style>
+caption {
+      color: black;
+      font-weight: bold;
+      font-size: 1.2em;
+      text-align: center;
+    }
+</style>
+")
+property_damage_state <- sd %>% 
+  group_by(STATE, EVTYPE) %>% 
+  summarise(Total.Property.Damage = sum(PROPDMG, na.rm = TRUE)) %>% 
+  filter(Total.Property.Damage > 0) %>%
+  group_by(STATE) %>%
+  arrange(STATE, desc(Total.Property.Damage)) %>%
+  mutate(Percentage = percent(Total.Property.Damage / sum(Total.Property.Damage)), Cumulative.Percentage = percent(cumsum(Total.Property.Damage) / sum(Total.Property.Damage)))
+
+splitted_by_state <- split(property_damage_state, property_damage_state$STATE)
+for (splitted in  splitted_by_state) {
+    df <- as.data.frame(splitted)
+    sn <- unique(df$STATE)
+    df <- df %>% select(-STATE, Event.Type = EVTYPE)
+    print(kable(head(df, 10), caption = paste("Top 10 Property Damages for ", sn)))
+}
+```
